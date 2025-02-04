@@ -220,8 +220,13 @@ def main():
             player_name = st.text_input("Player Name")
             position = st.selectbox("Position", list(get_position_config().keys()))
     
-    # Main area header
-    st.title("Rapids Academy Player Stats")
+    # Main area header with logo
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.image("https://upload.wikimedia.org/wikipedia/en/thumb/2/2b/Colorado_Rapids_logo.svg/800px-Colorado_Rapids_logo.svg.png", 
+                width=100)
+    with col2:
+        st.title("Rapids Academy Player Stats")
     
     # Route to appropriate view
     if user_type == "Coach":
