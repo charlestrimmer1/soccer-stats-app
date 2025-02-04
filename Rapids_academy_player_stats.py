@@ -121,8 +121,18 @@ def coach_view():
             st.warning(f"No data available for {player}")
             continue
             
+        try:
+            positions = list(get_position_config().keys())
+            position = data.get('position', positions)
+            if not position or not isinstance(position, (list, str)):
+                position = positions[0]  # Set default to first position
+            elif isinstance(position, list):
+                position = position[0]
+        except Exception as e:
+            st.error(f"Error loading position data. Using default position.")
+            position = list(get_position_config().keys())[0]
+
         if view_type == "Basic Stats":
-            position = data.get('position', get_position_config().keys())[0]
             show_basic_stats(data, position)
             
             # Recent matches
@@ -131,7 +141,6 @@ def coach_view():
             st.dataframe(recent[['date', 'opponent', 'minutes_played']])
             
         else:  # Performance Trends
-            position = data.get('position', list(get_position_config().keys())[0])
             position_stats = get_position_config()[position]
             stat = st.selectbox(
                 "Select stat to view",
