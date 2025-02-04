@@ -4,7 +4,7 @@ from datetime import datetime
 import os
 import plotly.express as px
 
-# Page configuration must be first
+# Page configuration must be first Streamlit command
 st.set_page_config(
     page_title="Rapids Academy Stats",
     page_icon="⚽",
@@ -208,13 +208,6 @@ def player_view(player_name, position):
                 show_performance_trend(data, selected_stat)
 
 def main():
-    # Page config must be the first Streamlit command
-    st.set_page_config(
-        page_title="Rapids Academy Stats",
-        page_icon="⚽",
-        layout="wide"
-    )
-
     # Sidebar for navigation
     with st.sidebar:
         st.header("User Type")
