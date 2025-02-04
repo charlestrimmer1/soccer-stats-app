@@ -42,6 +42,9 @@ def get_default_position_config():
         "Center Forward": ["receptions_behind_line", "assists", "goals"]
     }
 
+def authenticate_coach():
+    return st.sidebar.text_input("Coach Password", type="password") == COACH_PASSWORD
+
 def manage_stats_categories():
     st.header("Manage Stats Categories")
     
@@ -122,6 +125,50 @@ def save_data(data, player_name, team):
     st.cache_data.clear()
     return filename
 
+def create_stat_inputs(position):
+    stats = {}
+    position_config = load_position_config()
+    for stat in position_config[position]:
+        display_name = stat.replace('_', ' ').title()
+        stats[stat] = st.number_input(display_name, 0, 200, 0)
+    return stats
+
+def show_basic_stats(data, position):
+    if data is None or data.empty:
+        return
+    
+    matches = len(data)
+    total_minutes = data['minutes_played'].sum()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Matches Played", matches)
+    with col2:
+        st.metric("Total Minutes", int(total_minutes))
+    
+    position_stats = load_position_config()[position]
+    available_stats = [stat for stat in position_stats if stat in data.columns]
+    
+    if available_stats:
+        stats = data[available_stats].sum()
+        cols = st.columns(3)
+        for i, (stat, value) in enumerate(stats.items()):
+            cols[i % 3].metric(stat.replace('_', ' ').title(), int(value))
+
+def show_performance_trend(data, stat):
+    if data is None or data.empty:
+        return
+    
+    data['date'] = pd.to_datetime(data['date'])
+    fig = px.line(
+        data.sort_values('date'),
+        x='date',
+        y=stat,
+        title=f'{stat.replace("_", " ").title()} Over Time',
+        markers=True
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 def coach_view():
     st.header("Coach View")
     
@@ -144,8 +191,99 @@ def coach_view():
         st.info("Please select players to view their statistics")
         return
     
-    # Rest of the coach view functionality...
-    # (Previous coach_view code remains the same, just update data loading to include team)
+    # View selector for better performance
+    view_type = st.radio(
+        "Select View",
+        ["Basic Stats", "Performance Trends"],
+        horizontal=True
+    )
+    
+    # Show stats based on selection
+    for player in selected_players:
+        st.subheader(player)
+        data = load_data(player, selected_team)
+        
+        if data is None:
+            st.warning(f"No data available for {player}")
+            continue
+            
+        try:
+            position = data['position'].iloc[0] if 'position' in data.columns else list(load_position_config().keys())[0]
+        except Exception as e:
+            st.error(f"Error loading position data. Using default position.")
+            position = list(load_position_config().keys())[0]
+
+        if view_type == "Basic Stats":
+            show_basic_stats(data, position)
+            
+            # Recent matches
+            st.subheader("Recent Matches")
+            recent = data.sort_values('date', ascending=False).head(3)
+            st.dataframe(recent[['date', 'opponent', 'minutes_played']])
+            
+        else:  # Performance Trends
+            position_stats = load_position_config()[position]
+            stat = st.selectbox(
+                "Select stat to view",
+                position_stats,
+                key=f"stat_select_{player}"
+            )
+            show_performance_trend(data, stat)
+
+def player_view_content(player_name, position, team):
+    # Initialize tabs
+    add_tab, view_tab = st.tabs(["Add Match", "View Stats"])
+    
+    # Load data
+    data = load_data(player_name, team)
+    if data is None:
+        data = pd.DataFrame(columns=['date', 'opponent', 'minutes_played', 'position'] + 
+                          load_position_config()[position])
+    
+    # Add Match Tab
+    with add_tab:
+        with st.form("new_match_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                match_date = st.date_input("Match Date", datetime.today())
+                opponent = st.text_input("Opponent Team")
+                minutes = st.number_input("Minutes Played", 0, 120, 0)
+            
+            with col2:
+                stats = create_stat_inputs(position)
+            
+            if st.form_submit_button("Save Match"):
+                if not opponent or minutes == 0:
+                    st.error("Please fill in all required fields")
+                else:
+                    new_match = {
+                        'date': match_date.strftime('%Y-%m-%d'),
+                        'opponent': opponent,
+                        'minutes_played': minutes,
+                        'position': position,
+                        **stats
+                    }
+                    data = pd.concat([data, pd.DataFrame([new_match])], ignore_index=True)
+                    save_data(data, player_name, team)
+                    st.success("Match added successfully!")
+                    st.rerun()
+    
+    # View Stats Tab
+    with view_tab:
+        if data.empty:
+            st.info("No matches recorded yet. Add your first match in the Add Match tab!")
+        else:
+            show_basic_stats(data, position)
+            
+            # Show performance trends for selected stat
+            st.subheader("Performance Trends")
+            selected_stat = st.selectbox(
+                "Select stat to view",
+                load_position_config()[position]
+            )
+            if selected_stat:
+                show_performance_trend(data, selected_stat)
 
 def player_view():
     # Team selection
