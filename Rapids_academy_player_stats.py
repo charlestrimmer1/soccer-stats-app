@@ -4,14 +4,17 @@ from datetime import datetime
 import os
 import plotly.express as px
 
-# Configure page settings for better performance
-st.set_page_config(page_title="Rapids Academy Player Stats", 
-                   layout="wide", 
-                   initial_sidebar_state="expanded")
+# Page configuration must be first
+st.set_page_config(
+    page_title="Rapids Academy Stats",
+    page_icon="⚽",
+    layout="wide"
+)
 
-# Add after imports
+# Constants
 COACH_PASSWORD = "rapids2024"
 
+# Authentication function
 def authenticate_coach():
     return st.sidebar.text_input("Coach Password", type="password") == COACH_PASSWORD
 
