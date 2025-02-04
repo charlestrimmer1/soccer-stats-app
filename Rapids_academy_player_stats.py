@@ -205,6 +205,34 @@ def player_view(player_name, position):
                 show_performance_trend(data, selected_stat)
 
 def main():
+    # Add Rapids logo with improved error handling
+    logo_url = "https://upload.wikimedia.org/wikipedia/en/thumb/2/2b/Colorado_Rapids_logo.svg/800px-Colorado_Rapids_logo.svg.png"
+    backup_logo_url = "https://coloradorapids.com/sites/default/files/logo.png"
+    
+    st.set_page_config(
+        page_title="Rapids Academy Stats",
+        page_icon="⚽",
+        layout="wide"
+    )
+    
+    try:
+        st.image(logo_url, width=150)
+    except Exception as e:
+        try:
+            st.image(backup_logo_url, width=150)
+        except Exception as e:
+            st.error("Unable to load Rapids logo")
+            st.write(f"Debug info: {str(e)}")
+    
+    st.title("Colorado Rapids Academy Player Statistics")
+    
+    # User type selection
+    user_type = st.sidebar.radio(
+        "Select User Type",
+        ["Coach", "Player"],
+        horizontal=True
+    )
+    
     # Sidebar for navigation
     with st.sidebar:
         st.header("User Type")
