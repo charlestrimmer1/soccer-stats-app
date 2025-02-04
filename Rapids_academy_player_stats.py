@@ -305,7 +305,7 @@ def player_view(player_name, position):
     """Dedicated player view function"""
     data = load_data(player_name)
     if data is None:
-        data = pd.DataFrame(columns=['date', 'opponent', 'minutes_played'] + 
+        data = pd.DataFrame(columns=['date', 'opponent', 'minutes_played', 'position'] + 
                           get_position_config()[position])
     
     tab1, tab2, tab3 = st.tabs(["Add Match", "View Stats", "Manage Matches"])
@@ -365,18 +365,11 @@ def add_match_view(data, player_name, position):
                 'date': match_date.strftime('%Y-%m-%d'),
                 'opponent': opponent,
                 'minutes_played': minutes,
-                'position': position  # Add position to the data
+                'position': position
             }
             
             # Add stats to new match
             new_match.update(stats)
             
             # Append to existing data
-            try:
-                new_df = pd.DataFrame([new_match])
-                data = pd.concat([data, new_df], ignore_index=True)
-            except Exception as e:
-                print(f"Error concatenating data: {e}")
-                # Optionally log the error
-                print(f"Debug info - new data: {new_match}")
-                print(f"Debug info - existing data shape: {data.shape}")
+            data = pd.concat([data, pd.DataFrame([new_match])],)
