@@ -205,38 +205,17 @@ def player_view(player_name, position):
                 show_performance_trend(data, selected_stat)
 
 def main():
-    # Add Rapids logo with improved error handling
-    logo_url = "https://upload.wikimedia.org/wikipedia/en/thumb/2/2b/Colorado_Rapids_logo.svg/800px-Colorado_Rapids_logo.svg.png"
-    backup_logo_url = "https://coloradorapids.com/sites/default/files/logo.png"
-    
+    # Page config must be the first Streamlit command
     st.set_page_config(
         page_title="Rapids Academy Stats",
         page_icon="⚽",
         layout="wide"
     )
-    
-    try:
-        st.image(logo_url, width=150)
-    except Exception as e:
-        try:
-            st.image(backup_logo_url, width=150)
-        except Exception as e:
-            st.error("Unable to load Rapids logo")
-            st.write(f"Debug info: {str(e)}")
-    
-    st.title("Colorado Rapids Academy Player Statistics")
-    
-    # User type selection
-    user_type = st.sidebar.radio(
-        "Select User Type",
-        ["Coach", "Player"],
-        horizontal=True
-    )
-    
+
     # Sidebar for navigation
     with st.sidebar:
         st.header("User Type")
-        user_type = st.radio("Select User Type", ["Player", "Coach"])
+        user_type = st.radio("Select User Type", ["Player", "Coach"], horizontal=True)
         
         if user_type == "Coach":
             is_authenticated = authenticate_coach()
@@ -253,12 +232,12 @@ def main():
         if is_authenticated:
             coach_view()
         else:
-            st.error("Please enter valid coach password")
+            st.warning("Please authenticate to access coach view")
     else:
         if player_name:
             player_view(player_name, position)
         else:
-            st.info("👈 Please enter player name in the sidebar to get started!")
+            st.info("Please enter your name to view stats")
 
 if __name__ == "__main__":
     main()
