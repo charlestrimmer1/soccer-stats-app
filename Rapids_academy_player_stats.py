@@ -1,28 +1,20 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime
 import os
 import plotly.express as px
-import plotly.graph_objects as go
+
+# Configure page settings for better performance
+st.set_page_config(page_title="Rapids Academy Player Stats", 
+                   layout="wide", 
+                   initial_sidebar_state="expanded")
 
 # Add after imports
-COACH_PASSWORD = "rapids2024"  # In production, use proper security measures
+COACH_PASSWORD = "rapids2024"
 
 def authenticate_coach():
-    """Authenticate coach with password"""
-    password = st.sidebar.text_input("Coach Password", type="password", key="coach_password_input")
-    return password == COACH_PASSWORD
+    return st.sidebar.text_input("Coach Password", type="password") == COACH_PASSWORD
 
-def get_all_players():
-    """Get list of all players from player_data directory"""
-    if not os.path.exists('player_data'):
-        return []
-    return [f.replace('.csv', '').replace('_', ' ').title() 
-            for f in os.listdir('player_data') 
-            if f.endswith('.csv')]
-
-# Cache the position stats configuration
 @st.cache_data
 def get_position_config():
     return {
@@ -35,341 +27,201 @@ def get_position_config():
         "Center Forward": ["receptions_behind_line", "assists", "goals", "ball_recoveries", "successful_holdup_plays", "forced_errors"]
     }
 
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_data(player_name):
     if not player_name:
         return None
     filename = f"player_data/{player_name.lower().replace(' ', '_')}.csv"
     if os.path.exists(filename):
-        # Ensure all required columns exist
-        data = pd.read_csv(filename)
-        default_columns = ['date', 'opponent', 'minutes_played']
-        for position, stats in get_position_config().items():
-            default_columns.extend(stats)
-        # Add missing columns with default value 0
-        for col in default_columns:
-            if col not in data.columns:
-                data[col] = 0
-        return data
+        return pd.read_csv(filename)
     return None
+
+def get_all_players():
+    if not os.path.exists('player_data'):
+        return []
+    return [f.replace('.csv', '').replace('_', ' ').title() 
+            for f in os.listdir('player_data') 
+            if f.endswith('.csv')]
 
 def save_data(data, player_name):
     if not os.path.exists('player_data'):
         os.makedirs('player_data')
     filename = f"player_data/{player_name.lower().replace(' ', '_')}.csv"
     data.to_csv(filename, index=False)
+    st.cache_data.clear()
     return filename
 
 def create_stat_inputs(position):
-    """Create input fields based on position"""
     stats = {}
     for stat in get_position_config()[position]:
-        # Convert snake_case to Title Case for display
         display_name = stat.replace('_', ' ').title()
         stats[stat] = st.number_input(display_name, 0, 200, 0)
     return stats
 
-def show_stats_summary(data, position):
-    """Display position-specific stats summary"""
+def show_basic_stats(data, position):
     if data is None or data.empty:
         return
-
-    # Get the configured stats for the position
+    
+    matches = len(data)
+    total_minutes = data['minutes_played'].sum()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Matches Played", matches)
+    with col2:
+        st.metric("Total Minutes", int(total_minutes))
+    
     position_stats = get_position_config()[position]
-    
-    # Filter to only include stats that exist in the data
     available_stats = [stat for stat in position_stats if stat in data.columns]
-    missing_stats = [stat for stat in position_stats if stat not in data.columns]
     
-    # Calculate sums for available stats
     if available_stats:
         stats = data[available_stats].sum()
-        
-        # Display in columns
         cols = st.columns(3)
         for i, (stat, value) in enumerate(stats.items()):
-            display_name = stat.replace('_', ' ').title()
-            cols[i % 3].metric(display_name, int(value))
-    
-    # Show warning about missing stats if any
-    if missing_stats:
-        st.warning(f"Some stats are not available in existing data: {', '.join(missing_stats)}. These will be available for new matches.")
+            cols[i % 3].metric(stat.replace('_', ' ').title(), int(value))
 
-def plot_stat_trends(data, position):
-    """Create trend plots for each relevant stat"""
+def show_performance_trend(data, stat):
     if data is None or data.empty:
         return
     
-    # Convert date to datetime if it's not already
     data['date'] = pd.to_datetime(data['date'])
-    
-    # Sort by date
-    data = data.sort_values('date')
-    
-    # Get configured stats for the position
-    position_stats = get_position_config()[position]
-    
-    # Filter to only include stats that exist in the data and are numeric
-    numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns
-    available_stats = [stat for stat in position_stats if stat in numeric_cols]
-    missing_stats = [stat for stat in position_stats if stat not in data.columns]
-    
-    # Show warning about missing stats if any
-    if missing_stats:
-        st.warning(f"Some stats are not available in existing data: {', '.join(missing_stats)}. These will be available for new matches.")
-    
-    # Create tabs for different types of visualizations
-    trend_tab, comparison_tab = st.tabs(["Stat Trends", "Match Comparison"])
-    
-    with trend_tab:
-        # Create line plots for each stat
-        for stat in available_stats:
-            display_name = stat.replace('_', ' ').title()
-            fig = px.line(data, x='date', y=stat, 
-                         title=f'{display_name} Over Time',
-                         markers=True)
-            fig.update_layout(xaxis_title="Date",
-                            yaxis_title=display_name)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Calculate and display trend
-            if len(data) > 1:
-                trend = data[stat].diff().mean()
-                trend_direction = "↑" if trend > 0 else "↓" if trend < 0 else "→"
-                st.caption(f"Trend: {trend_direction} ({abs(trend):.2f} per match)")
-    
-    with comparison_tab:
-        # Create radar chart comparing last match to average
-        if len(data) > 0:
-            last_match = data.iloc[-1]
-            # Only calculate means for numeric columns
-            numeric_data = data.select_dtypes(include=['int64', 'float64'])
-            avg_stats = numeric_data.mean()
-            
-            stats = [stat for stat in get_position_config()[position] 
-                    if stat in numeric_data.columns]
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatterpolar(
-                r=[last_match[stat] for stat in stats],
-                theta=[stat.replace('_', ' ').title() for stat in stats],
-                fill='toself',
-                name='Last Match'
-            ))
-            
-            fig.add_trace(go.Scatterpolar(
-                r=[avg_stats[stat] for stat in stats],
-                theta=[stat.replace('_', ' ').title() for stat in stats],
-                fill='toself',
-                name='Season Average'
-            ))
-            
-            fig.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0, data[stats].max().max()])),
-                showlegend=True,
-                title="Last Match vs Season Average"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-
-def delete_match(data, index, player_name):
-    """Delete a match from the dataset"""
-    data = data.drop(index)
-    save_data(data, player_name)
-    st.cache_data.clear()
-    return data
-
-def show_team_overview(selected_players):
-    """Display team-wide statistics and trends"""
-    st.subheader("Team Overview")
-    
-    # Collect all player data
-    all_player_data = []
-    for player in selected_players:
-        data = load_data(player)
-        if data is not None:
-            data['player_name'] = player
-            all_player_data.append(data)
-    
-    if all_player_data:
-        combined_data = pd.concat(all_player_data, ignore_index=True)
-        
-        # Display team metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Matches", len(combined_data))
-        with col2:
-            st.metric("Total Minutes", int(combined_data['minutes_played'].sum()))
-        with col3:
-            st.metric("Players Tracked", len(selected_players))
-        
-        # Show recent matches
-        st.subheader("Recent Matches")
-        recent = combined_data.sort_values('date', ascending=False).head(5)
-        st.dataframe(recent[['date', 'player_name', 'opponent', 'minutes_played']])
-
-def show_individual_stats(selected_players):
-    """Display individual player statistics"""
-    for player in selected_players:
-        st.subheader(player)
-        data = load_data(player)
-        if data is not None:
-            # Get player's position from the first row (assuming it's consistent)
-            position = data.get('position', None)
-            if position not in get_position_config():
-                st.warning(f"Position data missing for {player}")
-                continue
-                
-            # Basic stats
-            matches = len(data)
-            total_minutes = data['minutes_played'].sum()
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Matches Played", matches)
-            with col2:
-                st.metric("Total Minutes", int(total_minutes))
-            
-            # Get position-specific stats
-            position_stats = get_position_config()[position]
-            
-            # Calculate and display stats summary
-            st.subheader("Performance Stats")
-            stat_cols = st.columns(3)
-            for i, stat in enumerate(position_stats):
-                if stat in data.columns:
-                    total = data[stat].sum()
-                    per_match = total / matches if matches > 0 else 0
-                    stat_cols[i % 3].metric(
-                        stat.replace('_', ' ').title(),
-                        f"Total: {total:.0f}",
-                        f"Per Match: {per_match:.2f}"
-                    )
-            
-            # Show recent form with expanded stats
-            st.subheader("Recent Matches")
-            recent = data.sort_values('date', ascending=False).head(3)
-            
-            for _, match in recent.iterrows():
-                with st.expander(f"{match['date']} vs {match['opponent']} ({match['minutes_played']} mins)"):
-                    rcol1, rcol2 = st.columns(2)
-                    with rcol1:
-                        for stat in position_stats[:len(position_stats)//2]:
-                            if stat in match:
-                                st.write(f"{stat.replace('_', ' ').title()}: {match[stat]}")
-                    with rcol2:
-                        for stat in position_stats[len(position_stats)//2:]:
-                            if stat in match:
-                                st.write(f"{stat.replace('_', ' ').title()}: {match[stat]}")
-            
-            # Performance trends
-            st.subheader("Performance Trends")
-            selected_stat = st.selectbox(
-                "Select stat to visualize",
-                options=[stat for stat in position_stats if stat in data.columns],
-                key=f"stat_select_{player}"
-            )
-            
-            if selected_stat:
-                fig = px.line(
-                    data.sort_values('date'),
-                    x='date',
-                    y=selected_stat,
-                    title=f"{selected_stat.replace('_', ' ').title()} Over Time"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+    fig = px.line(
+        data.sort_values('date'),
+        x='date',
+        y=stat,
+        title=f'{stat.replace("_", " ").title()} Over Time',
+        markers=True
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 def coach_view():
-    """Dedicated coach view function"""
     st.header("Coach View")
+    
+    # Get players and handle selection
     all_players = get_all_players()
-    selected_players = st.multiselect("Select Players to View", all_players, key="coach_player_select")
-    position_filter = st.multiselect("Filter by Position", 
-                                   list(get_position_config().keys()), 
-                                   key="coach_position_filter")
+    selected_players = st.multiselect("Select Players", all_players)
     
     if not selected_players:
         st.info("Please select players to view their statistics")
         return
-
-    # Create tabs for different views
-    overview_tab, individual_tab = st.tabs(["Team Overview", "Individual Stats"])
     
-    with overview_tab:
-        show_team_overview(selected_players)
+    # View selector for better performance
+    view_type = st.radio(
+        "Select View",
+        ["Basic Stats", "Performance Trends"],
+        horizontal=True
+    )
     
-    with individual_tab:
-        show_individual_stats(selected_players)
+    # Show stats based on selection
+    for player in selected_players:
+        st.subheader(player)
+        data = load_data(player)
+        
+        if data is None:
+            st.warning(f"No data available for {player}")
+            continue
+            
+        if view_type == "Basic Stats":
+            position = data.get('position', get_position_config().keys())[0]
+            show_basic_stats(data, position)
+            
+            # Recent matches
+            st.subheader("Recent Matches")
+            recent = data.sort_values('date', ascending=False).head(3)
+            st.dataframe(recent[['date', 'opponent', 'minutes_played']])
+            
+        else:  # Performance Trends
+            position = data.get('position', list(get_position_config().keys())[0])
+            position_stats = get_position_config()[position]
+            stat = st.selectbox(
+                "Select stat to view",
+                position_stats,
+                key=f"stat_select_{player}"
+            )
+            show_performance_trend(data, stat)
 
 def player_view(player_name, position):
-    """Dedicated player view function"""
+    # Initialize tabs
+    add_tab, view_tab = st.tabs(["Add Match", "View Stats"])
+    
+    # Load data
     data = load_data(player_name)
     if data is None:
         data = pd.DataFrame(columns=['date', 'opponent', 'minutes_played', 'position'] + 
                           get_position_config()[position])
     
-    tab1, tab2, tab3 = st.tabs(["Add Match", "View Stats", "Manage Matches"])
+    # Add Match Tab
+    with add_tab:
+        with st.form("new_match_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                match_date = st.date_input("Match Date", datetime.today())
+                opponent = st.text_input("Opponent Team")
+                minutes = st.number_input("Minutes Played", 0, 120, 0)
+            
+            with col2:
+                stats = create_stat_inputs(position)
+            
+            if st.form_submit_button("Save Match"):
+                if not opponent or minutes == 0:
+                    st.error("Please fill in all required fields")
+                else:
+                    new_match = {
+                        'date': match_date.strftime('%Y-%m-%d'),
+                        'opponent': opponent,
+                        'minutes_played': minutes,
+                        'position': position,
+                        **stats
+                    }
+                    data = pd.concat([data, pd.DataFrame([new_match])], ignore_index=True)
+                    save_data(data, player_name)
+                    st.success("Match added successfully!")
+                    st.rerun()
     
-    with tab1:
-        add_match_view(data, player_name, position)
-    
-    with tab2:
-        view_stats(data, position)
-    
-    with tab3:
-        manage_matches(data, player_name, position)
+    # View Stats Tab
+    with view_tab:
+        if data.empty:
+            st.info("No matches recorded yet. Add your first match in the Add Match tab!")
+        else:
+            show_basic_stats(data, position)
+            
+            # Show performance trends for selected stat
+            st.subheader("Performance Trends")
+            selected_stat = st.selectbox(
+                "Select stat to view",
+                get_position_config()[position]
+            )
+            if selected_stat:
+                show_performance_trend(data, selected_stat)
 
-def add_match_view(data, player_name, position):
-    """Add new match data for a player"""
-    st.subheader("Add New Match")
+def main():
+    # Sidebar for navigation
+    with st.sidebar:
+        st.header("User Type")
+        user_type = st.radio("Select User Type", ["Player", "Coach"])
+        
+        if user_type == "Coach":
+            is_authenticated = authenticate_coach()
+        else:
+            st.header("Player Information")
+            player_name = st.text_input("Player Name")
+            position = st.selectbox("Position", list(get_position_config().keys()))
     
-    # Create form for match data
-    with st.form("new_match_form"):
-        # Basic match info
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            match_date = st.date_input(
-                "Match Date",
-                datetime.today(),
-                key="match_date_input"
-            )
-            opponent = st.text_input(
-                "Opponent Team",
-                key="opponent_input"
-            )
-            minutes = st.number_input(
-                "Minutes Played",
-                0, 120, 0,
-                key="minutes_input"
-            )
-        
-        with col2:
-            # Position-specific stats
-            stats = create_stat_inputs(position)
-        
-        # Submit button
-        submitted = st.form_submit_button("Save Match")
-        
-        if submitted:
-            if not opponent:
-                st.error("Please enter opponent team name")
-                return
-            
-            if minutes == 0:
-                st.error("Please enter minutes played")
-                return
-            
-            # Create new match row
-            new_match = {
-                'date': match_date.strftime('%Y-%m-%d'),
-                'opponent': opponent,
-                'minutes_played': minutes,
-                'position': position
-            }
-            
-            # Add stats to new match
-            new_match.update(stats)
-            
-            # Append to existing data
-            data = pd.concat([data, pd.DataFrame([new_match])],)
+    # Main area header
+    st.title("Rapids Academy Player Stats")
+    
+    # Route to appropriate view
+    if user_type == "Coach":
+        if is_authenticated:
+            coach_view()
+        else:
+            st.error("Please enter valid coach password")
+    else:
+        if player_name:
+            player_view(player_name, position)
+        else:
+            st.info("👈 Please enter player name in the sidebar to get started!")
+
+if __name__ == "__main__":
+    main()
