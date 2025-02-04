@@ -214,6 +214,12 @@ def show_individual_stats(selected_players):
         st.subheader(player)
         data = load_data(player)
         if data is not None:
+            # Get player's position from the first row (assuming it's consistent)
+            position = data.get('position', None)
+            if position not in get_position_config():
+                st.warning(f"Position data missing for {player}")
+                continue
+                
             # Basic stats
             matches = len(data)
             total_minutes = data['minutes_played'].sum()
@@ -224,10 +230,54 @@ def show_individual_stats(selected_players):
             with col2:
                 st.metric("Total Minutes", int(total_minutes))
             
-            # Show recent form
-            st.write("Recent Matches")
+            # Get position-specific stats
+            position_stats = get_position_config()[position]
+            
+            # Calculate and display stats summary
+            st.subheader("Performance Stats")
+            stat_cols = st.columns(3)
+            for i, stat in enumerate(position_stats):
+                if stat in data.columns:
+                    total = data[stat].sum()
+                    per_match = total / matches if matches > 0 else 0
+                    stat_cols[i % 3].metric(
+                        stat.replace('_', ' ').title(),
+                        f"Total: {total:.0f}",
+                        f"Per Match: {per_match:.2f}"
+                    )
+            
+            # Show recent form with expanded stats
+            st.subheader("Recent Matches")
             recent = data.sort_values('date', ascending=False).head(3)
-            st.dataframe(recent[['date', 'opponent', 'minutes_played']])
+            
+            for _, match in recent.iterrows():
+                with st.expander(f"{match['date']} vs {match['opponent']} ({match['minutes_played']} mins)"):
+                    rcol1, rcol2 = st.columns(2)
+                    with rcol1:
+                        for stat in position_stats[:len(position_stats)//2]:
+                            if stat in match:
+                                st.write(f"{stat.replace('_', ' ').title()}: {match[stat]}")
+                    with rcol2:
+                        for stat in position_stats[len(position_stats)//2:]:
+                            if stat in match:
+                                st.write(f"{stat.replace('_', ' ').title()}: {match[stat]}")
+            
+            # Performance trends
+            st.subheader("Performance Trends")
+            selected_stat = st.selectbox(
+                "Select stat to visualize",
+                options=[stat for stat in position_stats if stat in data.columns],
+                key=f"stat_select_{player}"
+            )
+            
+            if selected_stat:
+                fig = px.line(
+                    data.sort_values('date'),
+                    x='date',
+                    y=selected_stat,
+                    title=f"{selected_stat.replace('_', ' ').title()} Over Time"
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
 def coach_view():
     """Dedicated coach view function"""
@@ -314,135 +364,19 @@ def add_match_view(data, player_name, position):
             new_match = {
                 'date': match_date.strftime('%Y-%m-%d'),
                 'opponent': opponent,
-                'minutes_played': minutes
+                'minutes_played': minutes,
+                'position': position  # Add position to the data
             }
             
             # Add stats to new match
             new_match.update(stats)
             
             # Append to existing data
-            data = pd.concat([data, pd.DataFrame([new_match])], ignore_index=True)
-            
-            # Save updated data
-            save_data(data, player_name)
-            
-            st.success("Match added successfully!")
-            st.cache_data.clear()
-            st.rerun()
-
-def view_stats(data, position):
-    """Display player stats and trends"""
-    if data is None or data.empty:
-        st.info("No match data available yet. Add your first match in the 'Add Match' tab!")
-        return
-        
-    # Show overall stats summary
-    st.subheader("Statistics Summary")
-    show_stats_summary(data, position)
-    
-    # Show trend plots
-    st.subheader("Performance Trends")
-    plot_stat_trends(data, position)
-    
-    # Recent form
-    st.subheader("Recent Matches")
-    recent = data.sort_values('date', ascending=False).head(5)
-    st.dataframe(recent[['date', 'opponent', 'minutes_played']])
-
-def manage_matches(data, player_name, position):
-    """Manage existing matches for a player"""
-    st.subheader("Match History")
-    
-    if data is None or data.empty:
-        st.info("No matches recorded yet.")
-        return
-    
-    # Get position-specific stats
-    position_stats = get_position_config()[position]
-    
-    # Sort matches by date (most recent first)
-    sorted_data = data.sort_values('date', ascending=False)
-    
-    # Display each match with edit/delete options
-    for idx, row in sorted_data.iterrows():
-        with st.expander(f"**{row['date']}** vs {row['opponent']} ({row['minutes_played']} minutes)"):
-            edit_col1, edit_col2 = st.columns(2)
-            
-            # Basic match info
-            with edit_col1:
-                edited_date = st.date_input(
-                    "Match Date", 
-                    pd.to_datetime(row['date']).date(), 
-                    key=f"edit_date_{idx}"
-                )
-                edited_opponent = st.text_input(
-                    "Opponent", 
-                    row['opponent'], 
-                    key=f"edit_opponent_{idx}"
-                )
-                edited_minutes = st.number_input(
-                    "Minutes Played", 
-                    0, 120, 
-                    int(row['minutes_played']), 
-                    key=f"edit_minutes_{idx}"
-                )
-            
-            # Position-specific stats only
-            with edit_col2:
-                edited_stats = {}
-                for stat in position_stats:
-                    display_name = stat.replace('_', ' ').title()
-                    edited_stats[stat] = st.number_input(
-                        display_name,
-                        0, 200,
-                        int(row[stat]) if stat in row and pd.notnull(row[stat]) else 0,
-                        key=f"{stat}_{idx}"
-                    )
-            
-            # Actions
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("🗑️ Delete", key=f"delete_{idx}", type="secondary"):
-                    data = delete_match(data, idx, player_name)
-                    st.success("Match deleted successfully!")
-                    st.rerun()
-
-def main():
-    st.set_page_config(page_title="Rapids Academy Player Stats", layout="wide")
-    
-    # Sidebar - Authentication and Navigation only
-    with st.sidebar:
-        st.header("User Type")
-        user_type = st.radio("Select User Type", ["Player", "Coach"], key="user_type_select")
-        
-        if user_type == "Coach":
-            is_authenticated = authenticate_coach()
-        else:
-            st.header("Player Information")
-            player_name = st.text_input("Player Name", key="player_name_input")
-            position = st.selectbox("Position", 
-                                  list(get_position_config().keys()), 
-                                  key="player_position_select")
-    
-    # Main content area
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.image("https://upload.wikimedia.org/wikipedia/en/thumb/2/2b/Colorado_Rapids_logo.svg/800px-Colorado_Rapids_logo.svg.png", 
-                width=100)
-    with col2:
-        st.title("Rapids Academy Player Stats")
-    
-    # Content based on user type
-    if user_type == "Coach":
-        if is_authenticated:
-            coach_view()
-        else:
-            st.error("Please enter valid coach password")
-    else:
-        if player_name:
-            player_view(player_name, position)
-        else:
-            st.info("👈 Please enter player name in the sidebar to get started!")
-
-if __name__ == "__main__":
-    main()
+            try:
+                new_df = pd.DataFrame([new_match])
+                data = pd.concat([data, new_df], ignore_index=True)
+            except Exception as e:
+                print(f"Error concatenating data: {e}")
+                # Optionally log the error
+                print(f"Debug info - new data: {new_match}")
+                print(f"Debug info - existing data shape: {data.shape}")
